@@ -15,10 +15,34 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include "config.h"
 
-int runsim(void);
+// Function definitions
+void docommand(char *cline);
 
 
-int runsim() {
+// Write a runsim program that runs up to n processes at a time. Start the runsim program by typing the following command
+int main(int argc, char *argv[]) {
+  // Check for the correct number of command-line arguments and output a usage message if incorrect.
+  // get CLI arguments and validate
+
+  // Allocate shared memory and populate it with # licenses from Step 1
+
+  // run main loop until EOF found
+  // 1. Read a line from stdin of up to MAX_CANON characters (fgets)
+  // 2. Request a license from the License object
+  // 3. Fork a child that does 'docommand'. docommand will request a license from the license manager object.
+  // 4. Check to see if any other children have finished (waitpid with WNOHANG option).
+
   return 0;
+}
+
+void docommand(char *cline) {
+  // 1. Fork a child (a grandchild of the original).
+    // This grandchild calls makeargv on cline and calls execvp on the resulting argument array.
+
+  // 2. Wait for this child and then return the license to the license object.
+
+  // 3. Exit
+  return;
 }
