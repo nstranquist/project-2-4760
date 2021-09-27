@@ -1,0 +1,12 @@
+Author: Nico Stranquist
+Project: Project 2 - Concurrent Linux Processes and shared memory
+Professor: Sanjiv K. Bhatia
+
+Compilation:
+- "make" compiles both testsim and runsim using the 'all' parameter
+
+Running:
+- ./runsim n < testing.data  // where "n" is the number of licenses specified (MAX at one time is 20)
+
+What the Program Does:
+...

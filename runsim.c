@@ -15,7 +15,17 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/wait.h>
 #include "config.h"
+
+// NOTE: You are required to use fork, exec (or one of its variants) ,wait, and exit to manage multiple processes.
+
+// You will need to set up shared memory in this project to allow the processes to communicate with each other.
+// Please check the man pages for shmget, shmctl, shmat, and shmdt to work with shared memory.
 
 // Function definitions
 void docommand(char *cline);
@@ -23,6 +33,103 @@ void docommand(char *cline);
 
 // Write a runsim program that runs up to n processes at a time. Start the runsim program by typing the following command
 int main(int argc, char *argv[]) {
+  if (argc != 2) {
+    fprintf(stderr, "Usage: %s <number-of-licenses>\n", argv[0]);
+    return -1;
+  }
+  // Validate that argv[1] is a number and is greater than 0 and less than MAX_LICENSES
+  if(!atoi(argv[1])) {
+    fprintf(stderr, "Usage: %s <number-of-licenses>, where n is an integer\n", argv[0]);
+    return -1;
+  }
+  else if(atoi(argv[1]) < 0) {
+    fprintf(stderr, "Usage: %s <number-of-licenses>, where n is an integer >= 0\n", argv[0]);
+    return -1;
+  }
+  else if(atoi(argv[1]) > MAX_LICENSES) {
+    printf("Warning: Max Licenses at a time is %d\n", MAX_LICENSES);
+  }
+
+  // parse argv[1] to get the number of licenses
+  int nlicenses = atoi(argv[1]);
+
+  printf("%d licenses requested\n", nlicenses);
+
+  // allocate shared memory
+  int shmid = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
+  printf("shmid: %d\n", shmid);
+  if (shmid == -1) {
+    perror("shmget");
+    return -1;
+  }
+  // attach shared memory
+  int *shm = shmat(shmid, NULL, 0);
+  if (shm == (void *) -1) {
+    perror("shmat");
+    return -1;
+  }
+  // populate shared memory
+  *shm = nlicenses;
+
+  // main loop
+  char cline[MAX_CANON];
+  while (fgets(cline, MAX_CANON, stdin) != NULL) {
+    // fork a child
+    pid_t pid = fork();
+    printf("cline: %s\n", cline);
+    printf("forked pid: %d\n", pid);
+    if (pid == -1) {
+      perror("fork");
+      return -1;
+    }
+    if (pid == 0) {
+      // child
+      docommand(cline);
+      exit(0);
+    }
+    // parent
+    int status;
+    pid_t wpid = waitpid(-1, &status, WNOHANG);
+    if (wpid == -1) {
+      perror("waitpid");
+      return -1;
+    }
+    if (wpid == 0) {
+      printf("no child finished\n");
+      // no child finished
+      continue;
+    }
+    // a child finished
+    // return license
+    int *shm = shmat(shmid, NULL, 0);
+    if (shm == (void *) -1) {
+      perror("shmat");
+      return -1;
+    }
+    *shm = *shm + 1;
+  }
+  // wait for all children to finish
+  int status;
+  pid_t wpid = waitpid(-1, &status, 0);
+  printf("all children finished. wpid %d\n", wpid);
+  if (wpid == -1) {
+    perror("waitpid");
+    return -1;
+  }
+  // detach shared memory
+  int detachResult = shmdt(shm);
+  printf("detachResult: %d\n", detachResult);
+  if (detachResult == -1) {
+    perror("shmdt");
+    return -1;
+  }
+  // remove shared memory
+  int removeResult = shmctl(shmid, IPC_RMID, NULL);
+  printf("removeResult: %d\n", removeResult);
+  if (removeResult == -1) {
+    perror("shmctl");
+    return -1;
+  }
   // Check for the correct number of command-line arguments and output a usage message if incorrect.
   // get CLI arguments and validate
 
@@ -31,18 +138,33 @@ int main(int argc, char *argv[]) {
   // run main loop until EOF found
   // 1. Read a line from stdin of up to MAX_CANON characters (fgets)
   // 2. Request a license from the License object
-  // 3. Fork a child that does 'docommand'. docommand will request a license from the license manager object.
-  // 4. Check to see if any other children have finished (waitpid with WNOHANG option).
+  // 3. Fork a child that does 'docommand'. docommand will request a license from the license manager object. If the license is not available, the request function will go into wait state.
+  // 4. Pass the input string from step (1) to docommand. The docommand function will execl the specified command
+  // 5. Check to see if any other children have finished (waitpid with WNOHANG option). It will returnlicense when that happens
+  // 6. After encountering EOF on stdin, wait for all the remaining children to finish and then exit
 
   return 0;
 }
 
 void docommand(char *cline) {
+  printf("received in docammand: %s\n", cline);
+
+  // get first word from cline
+  char *command = strtok(cline, " ");
+  // get the rest of the words in the line
+  char *arg2 = strtok(NULL, " ");
+  char *arg3 = strtok(NULL, " ");
+  printf("command: %s\n", command);
+  printf("args: %s %s\n", arg2, arg3);
+  // execl the command
+  execl(command, command, arg2, arg3, (char *) NULL);
+  perror("execl");
+  exit(1);
+
   // 1. Fork a child (a grandchild of the original).
     // This grandchild calls makeargv on cline and calls execvp on the resulting argument array.
 
   // 2. Wait for this child and then return the license to the license object.
 
-  // 3. Exit
-  return;
+  // 3. Exit (exit()?)
 }
