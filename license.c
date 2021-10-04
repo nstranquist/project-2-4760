@@ -6,18 +6,23 @@ int getlicense(void) {
   if(*nlicenses <= 0)
     return 1;
 
-  *nlicenses--;
+  printf("\nlast licenses: %d\n", *nlicenses);
+
+  *nlicenses = *nlicenses - 1;
+
+  printf("next licenses: %d\n\n", *nlicenses);
 
   return 0;
 }
 
 // Increments the # of licenses available
 int returnlicense(void) {
-  if(*nlicenses < MAX_LICENSES) {
-    printf("Max licenses reached");
+  if(*nlicenses >= MAX_LICENSES) {
+    printf("Max licenses reached\n");
     return 1;
   }
-  *nlicenses++;
+  *nlicenses = *nlicenses + 1;
+  printf("returnlicense: %d licenses available\n", *nlicenses);
   return 0;
 }
 
@@ -40,7 +45,7 @@ void addtolicenses(int n) {
 
   printf("adding %d licenses to nlicenses\n", n);
 
-  *nlicenses += n;
+  *nlicenses = *nlicenses + n;
 }
 
 // Decrements the number of licenses by n
@@ -55,7 +60,7 @@ void removelicenses(int n) {
     return;
   }
 
-  *nlicenses -= n;
+  *nlicenses = *nlicenses - n;
 }
 
 /**

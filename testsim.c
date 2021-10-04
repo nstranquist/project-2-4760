@@ -10,13 +10,30 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
 #include "config.h"
 #include "license.h"
 
+int printToFile(char *filename, char *msg);
+char *getFormattedTime();
+
 int main(int argc, char** argv) {
+  // get group process id
+  // gid_t gid = getgid();
+
+  // generate logfile based on pid (or gid?)
+  // char *logfile = malloc(sizeof(long) + (strlen("logfile_") + 1));
+  // sprintf(logfile, "logfile_%d", gid);
+
+  // hardcode name for now
+  char *logfile = "testsim.log";
+
+
+  printf("\n\nlogfile name: %s\n\n", logfile);
+
   printf("\nIn testsim! Args:\n");
   // Read, validate CLI arguments
   // print args
@@ -42,7 +59,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Usage: testsim <sleep time> <repeat factor>\n");
     return 1;
   }
-
+  char *message;
   // Enter loop for number of iterations
   for (int i = 0; i < repeatFactor; i++) {
 
@@ -50,14 +67,52 @@ int main(int argc, char** argv) {
     printf("Sleeping for %d seconds\n", sleepTime);
     sleep(sleepTime);
     printf("Done sleeping for %d seconds\n", sleepTime);
+    
     // generate char* message of the time, pid, iteration #
-    // char* message = malloc(sizeof(char) * (strlen(argv[0]) + strlen(argv[1]) + strlen(argv[2]) + strlen(argv[3]) + 10));
-    // sprintf(message, "%s %s %s %d", argv[0], argv[1], argv[2], i);
-    // printf("message: %s\n", message);
-    // log message
-    // logmsg(message);
-    // print message to logfile (time, pid, iteration # of number of iterations)
+    char *time = getFormattedTime();
+    int pid = getpid();
+
+    // concatenate message
+    char *message = malloc(strlen(time) + sizeof(long) + sizeof(int) + strlen("/") + sizeof(int) + 1);
+    sprintf(message, "%s %d %d/%d", time, pid, (i+1), repeatFactor);
+
+    // print time to file
+    if (printToFile(logfile, message) == -1) {
+      printf("testsim: Error: Could not print to file\n");
+      // return 1;
+    }
+    else {
+      printf("testsim: Success: Printed message to file: %s\n", message);
+    }
   }
 
   return 0;
+}
+
+int printToFile(char *filename, char *msg) {
+  FILE *log = fopen(filename, "a");
+  if (log == NULL) {
+    printf("testsim: Error: Can't open logfile\n");
+    return -1;
+  }
+  fprintf(log, "%s\n", msg);
+  fclose(log);
+  return 0;
+}
+
+char * getFormattedTime() {
+  time_t tm = time(NULL);
+  time(&tm);
+  struct tm *tp = localtime(&tm);
+
+  char time_str [9];
+  sprintf(time_str, "%.2d:%.2d:%.2d", tp->tm_hour, tp->tm_min, tp->tm_sec);
+
+  int msg_length = strlen(time_str);
+
+  char *formatted_msg = (char*)malloc(msg_length * sizeof(char));
+
+  sprintf(formatted_msg, "%s", time_str);
+
+  return formatted_msg;
 }

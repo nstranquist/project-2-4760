@@ -40,8 +40,18 @@ void docommand(char *cline);
 int detachandremove(int shmid, void *shmaddr);
 char * getTimeFormattedMessage(char *msg);
 
+// Bakery functions
+void critical_section();
+void remainder_section();
+int max(int *array, int size);
+void process_i(const int i);
+
 int shmid;
 void *shmaddr;
+
+// bakery variables, should be in shared memory
+int choosing[BAKERY_SIZE]; // shm boolean array
+int number[BAKERY_SIZE]; // shm integer array to hold turn number
 
 static void myhandler(int signum) {
   if(signum == SIGINT) {
@@ -52,25 +62,16 @@ static void myhandler(int signum) {
     // is timer interrupt
     printf("\nThe time for this program has expired. Shutting down gracefully...\n");
   }
-  // char aster = "handler called";
-  // int errsave;
-  // errsave = errno;
-  // write(STDERR_FILENO, &aster, 1);
-  // errno = errsave;
 
   // free memory and exit
-  pid_t group_id = getpgrp();
-  // shmctl(shmid, IPC_RMID, NULL);
-	// shmdt(nLicenses);
-  killpg(group_id, signum);
-
   nlicenses = (int *)shmat(shmid, NULL, 0);
   int result = detachandremove(shmid, nlicenses);
   printf("detachandremove result: %d", result);
+  pid_t group_id = getpgrp();
+  killpg(group_id, signum);
 
   if(result == -1) {
-    fprintf(stderr, "runsim: Error: Failure\n");
-    exit(1);
+    fprintf(stderr, "runsim: Error: Failure to detach and remove memory\n");
   }
 
   // Print time to logfile before exit
@@ -177,26 +178,33 @@ int main(int argc, char *argv[]) {
       return -1;
     }
 
+    // getlicense();
+
+    nlicenses = (int *)shmat(shmid, NULL, 0);
+
     printf("cline: %s\n", cline);
     // printf("forked pid: %d\n", pid);
 
+    // child's code if pid is 0
     if (pid == 0) {
       // request a license from the license manager object
-      while(getlicense() == 1) {
+      if(getlicense() == 1) {
         printf("Waiting for license to become available\n");
+        // Q) Is this the correct wait()?
         wait(NULL);
+        printf("Finished wait\n");
       }
 
 
       // Call docommand child
       docommand(cline);
     }
+    // parent's code if pid > 0
     else {
       // parent waits inside loop for child to finish
       int status;
-      pid_t wpid = waitpid(-1, &status, WNOHANG);
+      pid_t wpid = waitpid(pid, &status, WNOHANG);
       if (wpid == -1) {
-        // printf("wpid is -1\n");
         perror("runsim: Error: Failed to wait for child");
         return -1;
       }
@@ -210,7 +218,7 @@ int main(int argc, char *argv[]) {
         if(returnlicense() == 1) {
           printf("runsim: Error: Failed to return license\n");
         }
-        // printf("New licenses: %d", *nlicenses);
+        printf("New licenses after return: %d", *nlicenses);
       }
     }
   }
@@ -285,6 +293,10 @@ void docommand(char *cline) {
   //   printf("waiting on license\n");
   //   wait(NULL);
   // }
+  if(getlicense() == 1) {
+    printf("docommand: Waiting for license to become available\n");
+    wait(NULL);
+  }
   
   printf("Checking grandchild id: %d\n", grandchild_id);
   if (grandchild_id == -1) {
@@ -303,22 +315,22 @@ void docommand(char *cline) {
     // printf("args: %s %s\n", arg2, arg3);
     // execl the command
     execl(command, command, arg2, arg3, (char *) NULL);
+    perror("runsim: Error: Failed to execl");
+    // Q) clean up memory?
     // wait(NULL);
-    returnlicense();
   }
   else {
     // parent
     // printf("parent: %d\n", getpid());
     // printf("grandchild: %d\n", grandchild_id);
     // printf("cline: %s\n", cline);
-    wait(NULL);
+    int grandchild_status;
+    // Q) do we want no hang option here? do we want to wait for grandchild_id or any id (-1)?
+    waitpid(grandchild_id, &grandchild_status, WNOHANG);
+    printf("Grand child finished, result: %d\n", WEXITSTATUS(grandchild_status));
+    returnlicense();
   }
 
-  // while(getlicense() == 1) {
-  //   wait(NULL);
-  // }
-
-  
   exit(0);
   // 1. Fork a child (a grandchild of the original).
     // This grandchild calls makeargv on cline and calls execvp on the resulting argument array.
@@ -335,12 +347,12 @@ int detachandremove(int shmid, void *shmaddr) {
   int error = 0;
 
   if (shmdt(shmaddr) == -1) {
-    printf("cant detach\n");
+    printf("runsim: Error: Can't detach memory\n");
     error = errno;
   }
 
   if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error) {
-    printf("cant remove\n");
+    printf("runsim: Error: Can't remove memory\n");
     error = errno;
   }
 
@@ -359,7 +371,6 @@ char * getTimeFormattedMessage(char *msg) {
 
   char time_str [9];
   sprintf(time_str, "%.2d:%.2d:%.2d", tp->tm_hour, tp->tm_min, tp->tm_sec);
-  printf("Time: %s\n", time_str);
 
   int msg_length = strlen(msg) + strlen(time_str);
 
@@ -368,4 +379,53 @@ char * getTimeFormattedMessage(char *msg) {
   sprintf(formatted_msg, "%s%s", time_str, msg);
 
   return formatted_msg;
+}
+
+// Bakery Algorithm
+// - easier algorithm to understand and implement
+// - each process has a unique id (bitmap array)
+// - process id is assigned in a completely ordered manner
+// - unsigned character has 8 bits, can handle 7 processes
+// Can see exercise 5.10, page 251
+
+// Variables for bakery are declared at top of file
+
+void process_i(const int i) {
+  do {
+    choosing[i] = 1; // 1 is true
+    number[i] = 1 + max(number, BAKERY_SIZE); // get highest number within array and add 1, to define a new turn
+    choosing[i] = 0; // 0 is false
+
+    for(int j = 0; j < BAKERY_SIZE; j++) {
+      while(choosing[j]); // wait while someone else is choosing
+      while((number[j]) && (number[j], j) < (number[i], j)); // (a,b) < (c,d) === (a < c) || ((a == c) && (b < d))
+    }
+
+    // enter critical section
+    critical_section();
+
+    // exit critical section
+    number[i] = 0; // resets turn number
+
+    remainder_section();
+  } while(1);
+}
+
+// gets the highest number in an integer array
+int max(int *array, int size) {
+  int max = array[0];
+  for (int i = 1; i < size; i++) {
+    if (array[i] > max) {
+      max = array[i];
+    }
+  }
+  return max;
+}
+
+void critical_section() {
+  printf("In critical section!\n");
+}
+
+void remainder_section() {
+  printf("In remainder section.\n");
 }

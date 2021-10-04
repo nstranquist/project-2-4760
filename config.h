@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#define BAKERY_SIZE 21
 
 #define SLEEP_TIME 100
 
