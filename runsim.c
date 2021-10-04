@@ -17,9 +17,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
+#include <signal.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
+#include <sys/time.h>
 #include "config.h"
 
 // NOTE: You are required to use fork, exec (or one of its variants) ,wait, and exit to manage multiple processes.
@@ -29,6 +32,47 @@
 
 // Function definitions
 void docommand(char *cline);
+
+int shmid;
+int nLicenses;
+
+static void myhandler(int signum) {
+  if(signum == SIGINT) {
+    // is interrupt
+    printf("\nCtrl-C Interrupt Detected. Shutting down gracefully...\n");
+  }
+  else if(signum == SIGPROF) {
+    printf("\nThe time for this program has expired. Shutting down gracefully...\n");
+  }
+  // char aster = "handler called";
+  // int errsave;
+  // errsave = errno;
+  // write(STDERR_FILENO, &aster, 1);
+  // errno = errsave;
+
+  // free memory and exit
+  pid_t group_id = getpgrp();
+  // shmctl(shmid, IPC_RMID, NULL);
+	// shmdt(nLicenses);
+  killpg(group_id, signum);
+	exit(1);
+}
+
+static int setupinterrupt(void) {
+  struct sigaction act;
+  act.sa_handler = myhandler;
+  act.sa_flags = 0;
+  return (sigemptyset(&act.sa_mask) || sigaction(SIGPROF, &act, NULL));
+}
+
+static int setupitimer(void) {
+  struct itimerval value;
+  value.it_interval.tv_sec = 4;
+  // value.it_interval.tv_sec = SLEEP_TIME;
+  value.it_interval.tv_usec = 0;
+  value.it_value = value.it_interval;
+  return (setitimer(ITIMER_PROF, &value, NULL));
+}
 
 
 // Write a runsim program that runs up to n processes at a time. Start the runsim program by typing the following command
@@ -49,6 +93,32 @@ int main(int argc, char *argv[]) {
   else if(atoi(argv[1]) > MAX_LICENSES) {
     printf("Warning: Max Licenses at a time is %d\n", MAX_LICENSES);
   }
+
+  // Set up timers and interrupt handler
+  int err = setupitimer();
+  if (err) {
+    perror("runsim: Error: setupitimer");
+    return -1;
+  }
+  err = setupinterrupt();
+  if (err) {
+    perror("runsim: Error: setupinterrupt");
+    return -1;
+  }
+
+  // Enter infinite loop to test the signal handling to terminate after specified number of seconds SLEEP_TIME
+  int keepRunning;
+
+  signal(SIGINT, myhandler);
+
+  keepRunning = 1;
+  while(keepRunning) {
+    // catch ctrl-c interrupt
+  }
+
+
+
+
 
   // parse argv[1] to get the number of licenses
   int nlicenses = atoi(argv[1]);
@@ -71,22 +141,30 @@ int main(int argc, char *argv[]) {
   // populate shared memory
   *shm = nlicenses;
 
-  // main loop
   char cline[MAX_CANON];
+
+  // Main Loop
   while (fgets(cline, MAX_CANON, stdin) != NULL) {
     // fork a child
     pid_t pid = fork();
+    if (pid == -1) {
+      perror("fork");
+      return -1;
+    }
+
     printf("cline: %s\n", cline);
     printf("forked pid: %d\n", pid);
+
     if (pid == -1) {
       perror("fork");
       return -1;
     }
     if (pid == 0) {
-      // child
+      // Call docommand child
       docommand(cline);
       exit(0);
     }
+
     // parent
     int status;
     pid_t wpid = waitpid(-1, &status, WNOHANG);
@@ -108,6 +186,7 @@ int main(int argc, char *argv[]) {
     }
     *shm = *shm + 1;
   }
+
   // wait for all children to finish
   int status;
   pid_t wpid = waitpid(-1, &status, 0);
