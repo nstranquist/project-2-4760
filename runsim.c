@@ -19,6 +19,7 @@
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
+#include <time.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
@@ -32,16 +33,18 @@
 
 // Function definitions
 void docommand(char *cline);
+int detachandremove(int shmid, void *shmaddr);
 
 int shmid;
 int nLicenses;
 
 static void myhandler(int signum) {
   if(signum == SIGINT) {
-    // is interrupt
+    // is ctrl-c interrupt
     printf("\nCtrl-C Interrupt Detected. Shutting down gracefully...\n");
   }
   else if(signum == SIGPROF) {
+    // is timer interrupt
     printf("\nThe time for this program has expired. Shutting down gracefully...\n");
   }
   // char aster = "handler called";
@@ -55,6 +58,30 @@ static void myhandler(int signum) {
   // shmctl(shmid, IPC_RMID, NULL);
 	// shmdt(nLicenses);
   killpg(group_id, signum);
+
+  void *p;
+  int result = detachandremove(shmid, p);
+  printf("detachandremove result: %d", result);
+
+  // Print time to logfile before exit
+  // Get formatted time
+  time_t tm = time(NULL);
+  time(&tm);
+  struct tm *tp = localtime(&tm);
+
+  char time_str [9];
+  sprintf(time_str, "%.2d:%.2d:%.2d", tp->tm_hour, tp->tm_min, tp->tm_sec);
+  printf("Time: %s\n", time_str);
+
+  // write to file
+  char filename[] = "runsim.log";
+
+  // write time_str to filename
+  FILE *fp = fopen(filename, "a");
+  fprintf(fp, "%s\n", time_str);
+  fclose(fp);
+
+  // exit
 	exit(1);
 }
 
@@ -67,8 +94,7 @@ static int setupinterrupt(void) {
 
 static int setupitimer(void) {
   struct itimerval value;
-  value.it_interval.tv_sec = 4;
-  // value.it_interval.tv_sec = SLEEP_TIME;
+  value.it_interval.tv_sec = SLEEP_TIME;
   value.it_interval.tv_usec = 0;
   value.it_value = value.it_interval;
   return (setitimer(ITIMER_PROF, &value, NULL));
@@ -86,11 +112,15 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Usage: %s <number-of-licenses>, where n is an integer\n", argv[0]);
     return -1;
   }
-  else if(atoi(argv[1]) < 0) {
+
+  // parse argv[1] to get the number of licenses
+  int nlicenses = atoi(argv[1]);
+
+  if(nlicenses < 0) {
     fprintf(stderr, "Usage: %s <number-of-licenses>, where n is an integer >= 0\n", argv[0]);
     return -1;
   }
-  else if(atoi(argv[1]) > MAX_LICENSES) {
+  else if(nlicenses > MAX_LICENSES) {
     printf("Warning: Max Licenses at a time is %d\n", MAX_LICENSES);
   }
 
@@ -106,22 +136,7 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  // Enter infinite loop to test the signal handling to terminate after specified number of seconds SLEEP_TIME
-  int keepRunning;
-
   signal(SIGINT, myhandler);
-
-  keepRunning = 1;
-  while(keepRunning) {
-    // catch ctrl-c interrupt
-  }
-
-
-
-
-
-  // parse argv[1] to get the number of licenses
-  int nlicenses = atoi(argv[1]);
 
   printf("%d licenses requested\n", nlicenses);
 
@@ -228,6 +243,11 @@ int main(int argc, char *argv[]) {
 void docommand(char *cline) {
   printf("received in docammand: %s\n", cline);
 
+  // Fork to grand-child
+  pid_t grandchild_id = fork();
+
+
+
   // get first word from cline
   char *command = strtok(cline, " ");
   // get the rest of the words in the line
@@ -247,3 +267,22 @@ void docommand(char *cline) {
 
   // 3. Exit (exit()?)
 }
+
+// From textbook
+int detachandremove(int shmid, void *shmaddr) {
+   int error = 0;
+
+   if (shmdt(shmaddr) == -1)
+      error = errno;
+
+   if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error)
+      error = errno;
+
+   if (!error)
+      return 0;
+
+   errno = error;
+
+   return -1;
+}
+
