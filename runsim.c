@@ -13,7 +13,6 @@
  *  f. After encountering EOF on stdin, `wait` for all the remaining children to finish and then exit
  */
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -25,6 +24,7 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include "config.h"
+#include "license.h"
 
 // NOTE: You are required to use fork, exec (or one of its variants) ,wait, and exit to manage multiple processes.
 
@@ -34,9 +34,10 @@
 // Function definitions
 void docommand(char *cline);
 int detachandremove(int shmid, void *shmaddr);
+char * getTimeFormattedMessage(char *msg);
 
 int shmid;
-int nLicenses;
+void *shmaddr;
 
 static void myhandler(int signum) {
   if(signum == SIGINT) {
@@ -63,25 +64,16 @@ static void myhandler(int signum) {
   int result = detachandremove(shmid, p);
   printf("detachandremove result: %d", result);
 
+  if(result == -1) {
+    fprintf(stderr, "runsim: Error: Failure\n");
+    exit(1);
+  }
+
   // Print time to logfile before exit
-  // Get formatted time
-  time_t tm = time(NULL);
-  time(&tm);
-  struct tm *tp = localtime(&tm);
+  char *msg = getTimeFormattedMessage(" - Termination");
 
-  char time_str [9];
-  sprintf(time_str, "%.2d:%.2d:%.2d", tp->tm_hour, tp->tm_min, tp->tm_sec);
-  printf("Time: %s\n", time_str);
+  logmsg(msg);
 
-  // write to file
-  char filename[] = "runsim.log";
-
-  // write time_str to filename
-  FILE *fp = fopen(filename, "a");
-  fprintf(fp, "%s\n", time_str);
-  fclose(fp);
-
-  // exit
 	exit(1);
 }
 
@@ -100,28 +92,27 @@ static int setupitimer(void) {
   return (setitimer(ITIMER_PROF, &value, NULL));
 }
 
-
 // Write a runsim program that runs up to n processes at a time. Start the runsim program by typing the following command
 int main(int argc, char *argv[]) {
+  // Validate CLI Arguments
   if (argc != 2) {
     fprintf(stderr, "Usage: %s <number-of-licenses>\n", argv[0]);
     return -1;
   }
-  // Validate that argv[1] is a number and is greater than 0 and less than MAX_LICENSES
   if(!atoi(argv[1])) {
     fprintf(stderr, "Usage: %s <number-of-licenses>, where n is an integer\n", argv[0]);
     return -1;
   }
 
-  // parse argv[1] to get the number of licenses
-  int nlicenses = atoi(argv[1]);
+  // parse argv[1] to get the number of licenses available at the same time
+  int nlicensesInput = atoi(argv[1]);
 
-  if(nlicenses < 0) {
+  if(nlicensesInput < 0) {
     fprintf(stderr, "Usage: %s <number-of-licenses>, where n is an integer >= 0\n", argv[0]);
     return -1;
   }
-  else if(nlicenses > MAX_LICENSES) {
-    printf("Warning: Max Licenses at a time is %d\n", MAX_LICENSES);
+  else if(nlicensesInput > MAX_LICENSES) {
+    printf("runsim: Warning: Max Licenses at a time is %d\n", MAX_LICENSES);
   }
 
   // Set up timers and interrupt handler
@@ -138,49 +129,60 @@ int main(int argc, char *argv[]) {
 
   signal(SIGINT, myhandler);
 
-  printf("%d licenses requested\n", nlicenses);
+  printf("%d licenses specified\n", nlicensesInput);
 
   // allocate shared memory
-  int shmid = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
+  shmid = shmget(IPC_PRIVATE, sizeof(int), IPC_CREAT | 0666);
   printf("shmid: %d\n", shmid);
   if (shmid == -1) {
-    perror("shmget");
+    perror("runsim: Error: Failed to create shared memory segment");
     return -1;
   }
+
   // attach shared memory
-  int *shm = shmat(shmid, NULL, 0);
-  if (shm == (void *) -1) {
-    perror("shmat");
+  nlicenses = (int *)shmat(shmid, NULL, 0);
+  if (nlicenses == (void *) -1) {
+    perror("runsim: Error: Failed to attach to shared memory");
+    if (shmctl(shmid, IPC_RMID, NULL) == -1)
+      perror("runsim: Error: Failed to remove memory segment");
     return -1;
   }
-  // populate shared memory
-  *shm = nlicenses;
+
+  // initialize n licenses
+  initlicense();
+
+  // set nlicenses to nlicensesInput
+  addtolicenses(nlicensesInput);
+
+  // print nlicenses
+
+  printf("new nlicenses value: %d\n", *nlicenses);
+
+  printf("\n");
 
   char cline[MAX_CANON];
 
-  // Main Loop
+  // Main Loop until EOF reached
   while (fgets(cline, MAX_CANON, stdin) != NULL) {
     // fork a child
     pid_t pid = fork();
     if (pid == -1) {
-      perror("fork");
+      perror("runsim: Error: Failed to fork a child process");
+      if (detachandremove(shmid, nlicenses) == -1)
+        perror("runsim: Error: Failed to detach and remove shared memory segment");
       return -1;
     }
 
     printf("cline: %s\n", cline);
     printf("forked pid: %d\n", pid);
 
-    if (pid == -1) {
-      perror("fork");
-      return -1;
-    }
     if (pid == 0) {
       // Call docommand child
       docommand(cline);
-      exit(0);
+      // exit(0);
     }
 
-    // parent
+    // parent waits inside loop for child to finish
     int status;
     pid_t wpid = waitpid(-1, &status, WNOHANG);
     if (wpid == -1) {
@@ -194,12 +196,14 @@ int main(int argc, char *argv[]) {
     }
     // a child finished
     // return license
-    int *shm = shmat(shmid, NULL, 0);
-    if (shm == (void *) -1) {
-      perror("shmat");
-      return -1;
-    }
-    *shm = *shm + 1;
+    
+    // Wrong:
+    // int *shm = shmat(shmid, NULL, 0);
+    // if (shm == (void *) -1) {
+    //   perror("shmat");
+    //   return -1;
+    // }
+    // *shm = *shm + 1;
   }
 
   // wait for all children to finish
@@ -207,23 +211,34 @@ int main(int argc, char *argv[]) {
   pid_t wpid = waitpid(-1, &status, 0);
   printf("all children finished. wpid %d\n", wpid);
   if (wpid == -1) {
-    perror("waitpid");
+    perror("runsim: Error: Failed to wait for child to finish");
     return -1;
   }
+
+  if(detachandremove(shmid, nlicenses) == -1) {
+    perror("runsim: Error: Failed to detach and remove shared memory segment");
+    return -1;
+  }
+
+  // log message before final termination
+  
+  char *msg = getTimeFormattedMessage(" - Termination");
+  logmsg(msg);
+
   // detach shared memory
-  int detachResult = shmdt(shm);
-  printf("detachResult: %d\n", detachResult);
-  if (detachResult == -1) {
-    perror("shmdt");
-    return -1;
-  }
-  // remove shared memory
-  int removeResult = shmctl(shmid, IPC_RMID, NULL);
-  printf("removeResult: %d\n", removeResult);
-  if (removeResult == -1) {
-    perror("shmctl");
-    return -1;
-  }
+  // int detachResult = shmdt(shm);
+  // printf("detachResult: %d\n", detachResult);
+  // if (detachResult == -1) {
+  //   perror("shmdt");
+  //   return -1;
+  // }
+  // // remove shared memory
+  // int removeResult = shmctl(shmid, IPC_RMID, NULL);
+  // printf("removeResult: %d\n", removeResult);
+  // if (removeResult == -1) {
+  //   perror("shmctl");
+  //   return -1;
+  // }
   // Check for the correct number of command-line arguments and output a usage message if incorrect.
   // get CLI arguments and validate
 
@@ -270,19 +285,38 @@ void docommand(char *cline) {
 
 // From textbook
 int detachandremove(int shmid, void *shmaddr) {
-   int error = 0;
+  printf("cleaning up id %d\n", shmid);
 
-   if (shmdt(shmaddr) == -1)
-      error = errno;
+  int error = 0;
 
-   if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error)
-      error = errno;
+  if (shmdt(shmaddr) == -1)
+    error = errno;
 
-   if (!error)
-      return 0;
+  if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error)
+    error = errno;
 
-   errno = error;
+  if (!error)
+    return 0;
 
-   return -1;
+  errno = error;
+
+  return -1;
 }
 
+char * getTimeFormattedMessage(char *msg) {
+  time_t tm = time(NULL);
+  time(&tm);
+  struct tm *tp = localtime(&tm);
+
+  char time_str [9];
+  sprintf(time_str, "%.2d:%.2d:%.2d", tp->tm_hour, tp->tm_min, tp->tm_sec);
+  printf("Time: %s\n", time_str);
+
+  int msg_length = strlen(msg) + strlen(time_str);
+
+  char *formatted_msg = (char*)malloc(msg_length * sizeof(char));
+
+  sprintf(formatted_msg, "%s%s", time_str, msg);
+
+  return formatted_msg;
+}

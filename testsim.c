@@ -16,8 +16,6 @@
 #include "config.h"
 #include "license.h"
 
-void deallocateSharedMemory(int shmid);
-
 int main(int argc, char** argv) {
   printf("In testsim! Args:\n");
   // Read, validate CLI arguments
@@ -29,7 +27,7 @@ int main(int argc, char** argv) {
 
   // validate cli arguments
   if (argc != 3) {
-    printf("Error: Invalid number of arguments.\n");
+    printf("runsim: Error: Invalid number of arguments.\n");
     fprintf(stderr, "Usage: testsim <sleep time> <repeat factor>\n");
     return 1;
   }
@@ -40,7 +38,7 @@ int main(int argc, char** argv) {
 
   // validate cli arguments
   if (sleepTime < 0 || repeatFactor < 0) {
-    printf("Error: Invalid arguments. Must be positive integers\n");
+    printf("runsim: Error: Invalid arguments. Must be positive integers\n");
     fprintf(stderr, "Usage: testsim <sleep time> <repeat factor>\n");
     return 1;
   }
@@ -53,19 +51,12 @@ int main(int argc, char** argv) {
     sleep(sleepTime);
     // generate char* message of the time, pid, iteration #
     char* message = malloc(sizeof(char) * (strlen(argv[0]) + strlen(argv[1]) + strlen(argv[2]) + strlen(argv[3]) + 10));
+    sprintf(message, "%s %s %s %d", argv[0], argv[1], argv[2], i);
     printf("message: %s\n", message);
-    // sprintf(message, "%s %s %s %d", argv[0], argv[1], argv[2], i);
     // log message
     // logmsg(message);
     // print message to logfile (time, pid, iteration # of number of iterations)
-    // logmsg("testsim", "testsim: pid %d\n", getpid());
   }
 
   return 0;
-}
-
-// A Function to Deallocate Shared Memory
-void deallocateSharedMemory(int shmid) {
-  // Deallocate shared memory
-
 }
