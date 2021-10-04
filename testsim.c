@@ -17,7 +17,7 @@
 #include "license.h"
 
 int main(int argc, char** argv) {
-  printf("In testsim! Args:\n");
+  printf("\nIn testsim! Args:\n");
   // Read, validate CLI arguments
   // print args
   for (int i = 0; i < argc; i++) {
@@ -49,10 +49,11 @@ int main(int argc, char** argv) {
     // sleep for sleepTime seconds
     printf("Sleeping for %d seconds\n", sleepTime);
     sleep(sleepTime);
+    printf("Done sleeping for %d seconds\n", sleepTime);
     // generate char* message of the time, pid, iteration #
-    char* message = malloc(sizeof(char) * (strlen(argv[0]) + strlen(argv[1]) + strlen(argv[2]) + strlen(argv[3]) + 10));
-    sprintf(message, "%s %s %s %d", argv[0], argv[1], argv[2], i);
-    printf("message: %s\n", message);
+    // char* message = malloc(sizeof(char) * (strlen(argv[0]) + strlen(argv[1]) + strlen(argv[2]) + strlen(argv[3]) + 10));
+    // sprintf(message, "%s %s %s %d", argv[0], argv[1], argv[2], i);
+    // printf("message: %s\n", message);
     // log message
     // logmsg(message);
     // print message to logfile (time, pid, iteration # of number of iterations)

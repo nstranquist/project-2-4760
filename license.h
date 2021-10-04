@@ -1,4 +1,4 @@
-int getlicence(void);
+int getlicense(void);
 
 int returnlicense(void);
 

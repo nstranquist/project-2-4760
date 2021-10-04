@@ -1,4 +1,8 @@
 /**
+ * Author: Nico Stranquist
+ * Date: October 3, 2021
+ * 
+ *
  * Implement 'runsim' as follows:
  * 1. Check CLI arguments and output a usage message if argument is not appropriate
  * 2. Allocate shared memory and populate it with the number of licenses from Step 1
@@ -60,8 +64,8 @@ static void myhandler(int signum) {
 	// shmdt(nLicenses);
   killpg(group_id, signum);
 
-  void *p;
-  int result = detachandremove(shmid, p);
+  nlicenses = (int *)shmat(shmid, NULL, 0);
+  int result = detachandremove(shmid, nlicenses);
   printf("detachandremove result: %d", result);
 
   if(result == -1) {
@@ -174,46 +178,58 @@ int main(int argc, char *argv[]) {
     }
 
     printf("cline: %s\n", cline);
-    printf("forked pid: %d\n", pid);
+    // printf("forked pid: %d\n", pid);
 
     if (pid == 0) {
+      // request a license from the license manager object
+      while(getlicense() == 1) {
+        printf("Waiting for license to become available\n");
+        wait(NULL);
+      }
+
+
       // Call docommand child
       docommand(cline);
-      // exit(0);
     }
-
-    // parent waits inside loop for child to finish
-    int status;
-    pid_t wpid = waitpid(-1, &status, WNOHANG);
-    if (wpid == -1) {
-      perror("waitpid");
-      return -1;
+    else {
+      // parent waits inside loop for child to finish
+      int status;
+      pid_t wpid = waitpid(-1, &status, WNOHANG);
+      if (wpid == -1) {
+        // printf("wpid is -1\n");
+        perror("runsim: Error: Failed to wait for child");
+        return -1;
+      }
+      else if(wpid == 0) {
+        // child is still running
+        printf("Child is still running\n");
+      }
+      else {
+        printf("Child finished, wpid is %d . Returning license\n", wpid);
+        // return license
+        if(returnlicense() == 1) {
+          printf("runsim: Error: Failed to return license\n");
+        }
+        // printf("New licenses: %d", *nlicenses);
+      }
     }
-    if (wpid == 0) {
-      printf("no child finished\n");
-      // no child finished
-      continue;
-    }
-    // a child finished
-    // return license
-    
-    // Wrong:
-    // int *shm = shmat(shmid, NULL, 0);
-    // if (shm == (void *) -1) {
-    //   perror("shmat");
-    //   return -1;
-    // }
-    // *shm = *shm + 1;
   }
 
-  // wait for all children to finish
-  int status;
-  pid_t wpid = waitpid(-1, &status, 0);
-  printf("all children finished. wpid %d\n", wpid);
-  if (wpid == -1) {
-    perror("runsim: Error: Failed to wait for child to finish");
+  // Wait for all children to finish, after the main loop is complete
+  while(wait(NULL) > 0) {
+    printf("Waiting for all children to finish\n");
+  }
+
+  printf("All children supposedly finished\n");
+
+  nlicenses = (int *)shmat(shmid, NULL, 0);
+  if (nlicenses == (void *) -1) {
+    perror("runsim: Error: Failed to attach to shared memory");
+    if (shmctl(shmid, IPC_RMID, NULL) == -1)
+      perror("runsim: Error: Failed to remove memory segment");
     return -1;
   }
+
 
   if(detachandremove(shmid, nlicenses) == -1) {
     perror("runsim: Error: Failed to detach and remove shared memory segment");
@@ -261,20 +277,49 @@ void docommand(char *cline) {
   // Fork to grand-child
   pid_t grandchild_id = fork();
 
+  printf("forked grandchild: %d\n", grandchild_id);
 
+  // check if license available as well
 
-  // get first word from cline
-  char *command = strtok(cline, " ");
-  // get the rest of the words in the line
-  char *arg2 = strtok(NULL, " ");
-  char *arg3 = strtok(NULL, " ");
-  printf("command: %s\n", command);
-  printf("args: %s %s\n", arg2, arg3);
-  // execl the command
-  execl(command, command, arg2, arg3, (char *) NULL);
-  perror("execl");
-  exit(1);
+  // while(getlicense() == 1) {
+  //   printf("waiting on license\n");
+  //   wait(NULL);
+  // }
+  
+  printf("Checking grandchild id: %d\n", grandchild_id);
+  if (grandchild_id == -1) {
+    perror("runsim: Error: Failed to fork grand-child process");
+    return;
+  }
+  else if (grandchild_id == 0) {
+    // grand-child
+    // printf("grandchild: %d\n", grandchild_id);
+    // get first word from cline
+    char *command = strtok(cline, " ");
+    // get the rest of the words in the line
+    char *arg2 = strtok(NULL, " ");
+    char *arg3 = strtok(NULL, " ");
+    // printf("command: %s\n", command);
+    // printf("args: %s %s\n", arg2, arg3);
+    // execl the command
+    execl(command, command, arg2, arg3, (char *) NULL);
+    // wait(NULL);
+    returnlicense();
+  }
+  else {
+    // parent
+    // printf("parent: %d\n", getpid());
+    // printf("grandchild: %d\n", grandchild_id);
+    // printf("cline: %s\n", cline);
+    wait(NULL);
+  }
 
+  // while(getlicense() == 1) {
+  //   wait(NULL);
+  // }
+
+  
+  exit(0);
   // 1. Fork a child (a grandchild of the original).
     // This grandchild calls makeargv on cline and calls execvp on the resulting argument array.
 
@@ -289,11 +334,15 @@ int detachandremove(int shmid, void *shmaddr) {
 
   int error = 0;
 
-  if (shmdt(shmaddr) == -1)
+  if (shmdt(shmaddr) == -1) {
+    printf("cant detach\n");
     error = errno;
+  }
 
-  if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error)
+  if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error) {
+    printf("cant remove\n");
     error = errno;
+  }
 
   if (!error)
     return 0;

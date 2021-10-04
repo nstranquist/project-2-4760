@@ -8,13 +8,13 @@ runsim: runsim.o license.o
 testsim: testsim.o license.o
 	gcc -g -o testsim testsim.o license.o
 
-runsim.o: runsim.c
+runsim.o: runsim.c config.h
 	gcc -g -c runsim.c
 
-testsim.o: testsim.c
+testsim.o: testsim.c config.h
 	gcc -g -c testsim.c
 
-license.o: license.c
+license.o: license.c license.h
 	gcc -g -c license.c
 
 clean:
