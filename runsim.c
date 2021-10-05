@@ -15,6 +15,10 @@
  *  e. The parent (runsim) checks to see if any of the children have finished (waitpid with WNOHANG option).
  *      It will `returnlicense` when that happens
  *  f. After encountering EOF on stdin, `wait` for all the remaining children to finish and then exit
+    // You are required to use fork, exec (or one of its variants) ,wait, and exit to manage multiple processes.
+
+    // You will need to set up shared memory in this project to allow the processes to communicate with each other.
+    // Please check the man pages for shmget, shmctl, shmat, and shmdt to work with shared memory.
  */
 
 #include <string.h>
@@ -29,12 +33,6 @@
 #include "config.h"
 #include "license.h"
 
-// NOTE: You are required to use fork, exec (or one of its variants) ,wait, and exit to manage multiple processes.
-
-// You will need to set up shared memory in this project to allow the processes to communicate with each other.
-// Please check the man pages for shmget, shmctl, shmat, and shmdt to work with shared memory.
-
-// Note: Use GDB Debugger to work faster (opsys)
 
 // Function definitions
 void docommand(char *cline);
@@ -42,8 +40,6 @@ int detachandremove(int shmid, void *shmaddr);
 char * getTimeFormattedMessage(char *msg);
 
 // Bakery functions and bakery helpers
-void critical_section();
-void remainder_section();
 int max(int *array, int size);
 int process_i(const int i, int functionType, ...); // int (*function_ptr)(int first, ...)
 int getNextZero(int *array, int size);
@@ -52,21 +48,17 @@ int getBakeryPlace();
 int shmid;
 void *shmaddr;
 
-// bakery variables, should be in shared memory
-// int choosing[BAKERY_SIZE]; // shm boolean array
-// int number[BAKERY_SIZE]; // shm integer array to hold turn number
-
 static void myhandler(int signum) {
   if(signum == SIGINT) {
     // is ctrl-c interrupt
-    printf("\nCtrl-C Interrupt Detected. Shutting down gracefully...\n");
+    printf("\nrunsim: Ctrl-C Interrupt Detected. Shutting down gracefully...\n");
   }
   else if(signum == SIGPROF) {
     // is timer interrupt
-    printf("\nThe time for this program has expired. Shutting down gracefully...\n");
+    printf("\nrunsim: The time for this program has expired. Shutting down gracefully...\n");
   }
   else {
-    printf("runsim: Warning: Only Ctrl-C and Timer signal interrupts are being handled.\n");
+    printf("\nrunsim: Warning: Only Ctrl-C and Timer signal interrupts are being handled.\n");
     return;
   }
 
@@ -81,9 +73,8 @@ static void myhandler(int signum) {
   int place = getBakeryPlace(); // can ignore the return value
   process_i(place, 4, function_ptr, msg);
 
-  // nlicenses = (int *)shmat(shmid, NULL, 0);
   int result = detachandremove(shmid, nlicenses);
-  printf("detachandremove result: %d\n", result);
+
   pid_t group_id = getpgrp();
   killpg(group_id, signum);
 
@@ -173,13 +164,7 @@ int main(int argc, char *argv[]) {
   int place = getBakeryPlace();
 
   // queue into the bakery
-  printf("start initlicense\n");
   process_i(place, 2, function_ptr_init, nlicensesInput); // initialize licenses with nLicensesInput
-  printf("end initlicense\n");
-
-  // print nlicenses
-
-  printf("nlicenses value before main loop: %d\n", nlicenses->nlicenses);
 
   printf("\n");
 
@@ -188,13 +173,10 @@ int main(int argc, char *argv[]) {
   // Main Loop until EOF reached
   while (fgets(cline, MAX_CANON, stdin) != NULL) {
     printf("\n");
-    // 1. Request a License from the license object
-    // 
 
     // 1. Fork a child that calls docommand
     pid_t child_pid = fork();
  
-    // Q) Is this bad? Will it cause a "population explosion" compared to using "(childpid = fork()) <= 0" (ex. 3.10 section 3.3)
     if (child_pid == -1) {
       perror("runsim: Error: Failed to fork a child process");
       if (detachandremove(shmid, nlicenses) == -1)
@@ -202,30 +184,10 @@ int main(int argc, char *argv[]) {
       return -1;
     }
 
-    // printf("cline: %s\n", cline);
-    // printf("forked child_pid: %d\n", child_pid);
-
     // child's code if pid is 0
     if (child_pid == 0) {
-      nlicenses = (struct License *)shmat(shmid, NULL, 0); // attach memory again, because you are the child
-
-      // Go to bakery algorithm
-      // 1. get a pointer to the function getlicense()
-
-      // while(getlicense() == 1) {
-      //   // printf("runsim: waiting on license...%d\n", x);
-      //   sleep(1);
-      // }
-
-      // request a license from the license manager object
-      // if(getlicense() == 1) {
-      //   printf("Waiting for license to become available\n");
-        
-      //   // Q) Is this the correct wait()? If I use WNOHANG, it will keep running and not check?
-      //   wait(NULL); // try adding to a queue, then have the parent send a signal (kill) kill(-5) restarts
-      //   printf("Finished wait\n");
-      // }
-
+      // attach memory again, because you are the child
+      nlicenses = (struct License *)shmat(shmid, NULL, 0); 
 
       // Call docommand child
       docommand(cline);
@@ -241,11 +203,9 @@ int main(int argc, char *argv[]) {
       }
       else if(wpid == 0) {
         // child is still running
-        printf("Child is still running\n");
+        // printf("Child is still running\n");
       }
       else {
-        printf("Child finished, wpid is %d . Returning license\n", wpid);
-        
         // return license with bakery
         int (*function_ptr)();
         function_ptr = returnlicense;
@@ -258,7 +218,6 @@ int main(int argc, char *argv[]) {
         if(result == 1) {
           printf("runsim: Error: Failed to return license\n");
         }
-        printf("New licenses after return: %d\n", nlicenses->nlicenses);
       }
     }
   }
@@ -268,8 +227,6 @@ int main(int argc, char *argv[]) {
     printf("Waiting for all children to finish\n");
   }
 
-  printf("All children supposedly finished\n");
-
   nlicenses = (struct License *)shmat(shmid, NULL, 0);
   if (nlicenses == (void *) -1) {
     perror("runsim: Error: Failed to attach to shared memory");
@@ -277,8 +234,6 @@ int main(int argc, char *argv[]) {
       perror("runsim: Error: Failed to remove memory segment");
     return -1;
   }
-
-
 
   // log message before final termination
   
@@ -303,8 +258,6 @@ void docommand(char *cline) {
   printf("received in docammand: %s\n", cline);
 
   // check if license available as well
-
-  // Q) Why use if(getlicense()) then wait, versus using while(getlicense() == 1){ wait(); } ??
   
   // get function pointer for getlicense() to put into the bakery
   int (*function_ptr_get)();
@@ -312,9 +265,8 @@ void docommand(char *cline) {
   place = getBakeryPlace();
   int result = process_i(place, 1, function_ptr_get);
 
-  // use the result, repeat
+  // busy wait for available license
   while(result == 1) {
-    // printf("docommand: waiting on license...%d\n", x);
     sleep(1);
     result = process_i(place, 1, function_ptr_get);
   }
@@ -333,10 +285,12 @@ void docommand(char *cline) {
 
   printf("forked grandchild: %d\n", grandchild_id);
 
-  printf("Checking grandchild id: %d\n", grandchild_id);
   if (grandchild_id == -1) {
     perror("runsim: Error: Failed to fork grand-child process");
-    returnlicense();
+    int (*function_ptr_return)();
+    function_ptr_return = returnlicense;
+    place = getBakeryPlace(); // can ignore the return value
+    int result = process_i(place, 1, function_ptr_return);
     return;
   }
   else if (grandchild_id == 0) {
@@ -353,41 +307,28 @@ void docommand(char *cline) {
     // execl the command
     execl(command, command, arg2, arg3, (char *) NULL);
     perror("runsim: Error: Failed to execl");
-    // Q) clean up memory?
-    // wait(NULL);
-    // returnlicense();
   }
   else {
-    // parent
+    // in parent
     int grandchild_status;
-    // Q) do we want no hang option here? do we want to wait for grandchild_id or any id (-1)?
-    // waitpid(grandchild_id, &grandchild_status, WNOHANG);
+
     waitpid(grandchild_id, &grandchild_status, 0);
-    // wait(NULL);
     printf("Grand child finished, result: %d\n", WEXITSTATUS(grandchild_status));
 
     int (*function_ptr_return)();
     function_ptr_return = returnlicense;
     place = getBakeryPlace(); // can ignore the return value
     int result = process_i(place, 1, function_ptr_return);
+
     if(result == 1) {
       printf("licenses: %d\n", nlicenses->nlicenses);
-      // printf("runsim: Warning: didn't return license\n");
     }
   }
 
   exit(0);
-
-  // 1. Fork a child (a grandchild of the original).
-    // This grandchild calls makeargv on cline and calls execvp on the resulting argument array.
-
-  // 2. Wait for this child and then return the license to the license object.
-
-  // 3. Exit (exit()?)
 }
 
 // gets the next place in line for the bakery, executes the bakery, then returns the result
-// NOTE: not supporting optional params yet, so none are permitted
 int getBakeryPlace() {
   int place = getNextZero(nlicenses->number, BAKERY_SIZE);
   while(place == -1) {
@@ -407,16 +348,14 @@ int detachandremove(int shmid, void *shmaddr) {
   int error = 0;
 
   if (shmdt(shmaddr) == -1) {
-    perror("Caught shmdt");
-    printf("runsim: Error: Can't detach memory\n");
+    fprintf(stderr, "runsim: Error: Can't detach memory\n");
     error = errno;
   }
   
   fprintf(stderr, "trying to remove shared memory %d\n", shmid);
 
   if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error) {
-    perror("Caught shmdt");
-    printf("runsim: Error: Can't remove memory\n");
+    fprintf(stderr, "runsim: Error: Can't remove memory\n");
     error = errno;
   }
 
@@ -452,12 +391,9 @@ char * getTimeFormattedMessage(char *msg) {
 // - unsigned character has 8 bits, can handle 7 processes
 // Can see exercise 5.10, page 251
 
-// Variables for bakery are declared at top of file
-
 // optional parameters documentation:
 // https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/va-arg-va-copy-va-end-va-start
 
-// could i pass in the function pointers as optional parameters?
 int process_i(const int i, int functionType, ...) {
   do {
     nlicenses->choosing[i] = 1; // 1 is true
@@ -511,7 +447,6 @@ int process_i(const int i, int functionType, ...) {
         function_ptr_4 = va_arg(marker, void(*)(const char*));
         // get the optional params for the int
         const char *str = va_arg(marker, const char*);
-        printf("got string %s for pointer function\n", str);
         function_ptr_4(str);
         break;
       default:
@@ -519,15 +454,9 @@ int process_i(const int i, int functionType, ...) {
         break;
     }
 
-
-    // int result = function_ptr();
-    // critical_section();
-
     // exit critical section
     nlicenses->number[i] = 0; // resets turn number
     
-    printf("\nfunction_ptr result: %d\n\n", result);
-
     return result;
   } while(1);
 }
@@ -553,15 +482,3 @@ int getNextZero(int *array, int size) {
 
   return -1; // error case
 }
-
-// can send a pointer to this function of the critical function to execute
-// void critical_section() { // *function
-//   printf("In critical section!\n");
-
-//   // modify nlicenses
-//   // function();
-// }
-
-// void remainder_section() {
-//   printf("In remainder section.\n");
-// }
