@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define BAKERY_SIZE 99 // is this big enough? each child may request multiple critical_section() actions
 

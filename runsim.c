@@ -17,7 +17,6 @@
  *  f. After encountering EOF on stdin, `wait` for all the remaining children to finish and then exit
  */
 
-#include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
@@ -47,6 +46,7 @@ void remainder_section();
 int max(int *array, int size);
 int process_i(const int i, int (*function_ptr)());
 int getNextZero(int *array, int size);
+int executeBakery(int (*function_ptr)());
 
 int shmid;
 void *shmaddr;
@@ -232,8 +232,13 @@ int main(int argc, char *argv[]) {
       }
       else {
         printf("Child finished, wpid is %d . Returning license\n", wpid);
-        // return license
-        if(returnlicense() == 1) {
+        
+        // return license with bakery
+        int (*function_ptr)();
+        function_ptr = returnlicense;
+        int result = executeBakery(function_ptr);
+
+        if(result == 1) {
           printf("runsim: Error: Failed to return license\n");
         }
         printf("New licenses after return: %d\n", nlicenses->nlicenses);
@@ -278,20 +283,15 @@ void docommand(char *cline) {
   // Q) Why use if(getlicense()) then wait, versus using while(getlicense() == 1){ wait(); } ??
   
   // get function pointer for getlicense() to put into the bakery
-  // int (*function_ptr)();
-  // function_ptr = getlicense;
-  // int place = getNextZero(nlicenses->number, BAKERY_SIZE);
-  // while(place == -1) {
-  //   sleep(1);
-  //   place = getNextZero(nlicenses->number, BAKERY_SIZE);
-  // }
-  // printf("\ngot place: %d\n\n", place);
-  // int result = process_i(place, function_ptr);
+  int (*function_ptr)();
+  function_ptr = getlicense;
+  int result = executeBakery(function_ptr);
 
   // use the result, repeat
-  while(getlicense() == 1) {
+  while(result == 1) {
     // printf("docommand: waiting on license...%d\n", x);
     sleep(1);
+    result = executeBakery(function_ptr);
   }
 
   // actually consume the license for the process
@@ -335,20 +335,43 @@ void docommand(char *cline) {
     int grandchild_status;
     // Q) do we want no hang option here? do we want to wait for grandchild_id or any id (-1)?
     // waitpid(grandchild_id, &grandchild_status, WNOHANG);
-    // waitpid(grandchild_id, &grandchild_status, 0);
-    wait(NULL);
+    waitpid(grandchild_id, &grandchild_status, 0);
+    // wait(NULL);
     printf("Grand child finished, result: %d\n", WEXITSTATUS(grandchild_status));
-    returnlicense();
+
+    int (*function_ptr)();
+    function_ptr = returnlicense;
+    int result = executeBakery(function_ptr); // can ignore the return value
+    if(result == 1) {
+      printf("runsim: Warning: didn't return license\n");
+    }
   }
 
-  // returnlicense();
   exit(0);
+
   // 1. Fork a child (a grandchild of the original).
     // This grandchild calls makeargv on cline and calls execvp on the resulting argument array.
 
   // 2. Wait for this child and then return the license to the license object.
 
   // 3. Exit (exit()?)
+}
+
+// gets the next place in line for the bakery, executes the bakery, then returns the result
+// NOTE: not supporting optional params yet, so none are permitted
+int executeBakery(int (*function_ptr)()) {
+  int place = getNextZero(nlicenses->number, BAKERY_SIZE);
+  while(place == -1) {
+    sleep(1);
+    place = getNextZero(nlicenses->number, BAKERY_SIZE);
+  }
+
+  printf("\ngot place: %d\n\n", place);
+
+  // queue into the bakery
+  int result = process_i(place, function_ptr);
+
+  return result;
 }
 
 // From textbook
