@@ -18,5 +18,3 @@ struct License {
   int choosing[BAKERY_SIZE];
   int number[BAKERY_SIZE];
 };
-
-struct License *nlicenses;
