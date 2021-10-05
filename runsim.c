@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <time.h>
+#include <stdarg.h> // for optional parameters
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
@@ -44,9 +45,9 @@ char * getTimeFormattedMessage(char *msg);
 void critical_section();
 void remainder_section();
 int max(int *array, int size);
-int process_i(const int i, int (*function_ptr)());
+int process_i(const int i, int functionType, ...); // int (*function_ptr)(int first, ...)
 int getNextZero(int *array, int size);
-int executeBakery(int (*function_ptr)());
+int getBakeryPlace();
 
 int shmid;
 void *shmaddr;
@@ -84,7 +85,10 @@ static void myhandler(int signum) {
   // Print time to logfile before exit
   char *msg = getTimeFormattedMessage(" - Termination");
 
-  logmsg(msg);
+  void (*function_ptr)(const char*);
+  function_ptr = logmsg;
+  int place = getBakeryPlace(); // can ignore the return value
+  process_i(place, 4, function_ptr, msg);
 
 	exit(1);
 }
@@ -161,8 +165,16 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  // initialize n licenses
-  initlicense(nlicensesInput);
+  // initialize n licenses with bakery
+  int (*function_ptr_init)(int);
+  function_ptr_init = initlicense;
+
+  int place = getBakeryPlace();
+
+  // queue into the bakery
+  printf("start initlicense\n");
+  process_i(place, 2, function_ptr_init, nlicensesInput); // initialize licenses with nLicensesInput
+  printf("end initlicense\n");
 
   // print nlicenses
 
@@ -236,7 +248,11 @@ int main(int argc, char *argv[]) {
         // return license with bakery
         int (*function_ptr)();
         function_ptr = returnlicense;
-        int result = executeBakery(function_ptr);
+
+        place = getBakeryPlace();
+
+        // queue into the bakery
+        int result = process_i(place, 1, function_ptr);
 
         if(result == 1) {
           printf("runsim: Error: Failed to return license\n");
@@ -270,12 +286,18 @@ int main(int argc, char *argv[]) {
   // log message before final termination
   
   char *msg = getTimeFormattedMessage(" - Termination");
-  logmsg(msg);
+
+  // bakery
+  void (*function_ptr)(const char*);
+  function_ptr = logmsg;
+  place = getBakeryPlace(); // can ignore the return value
+  int result = process_i(place, 4, function_ptr, msg);
 
   return 0;
 }
 
 void docommand(char *cline) {
+  int place;
   printf("received in docammand: %s\n", cline);
 
   // check if license available as well
@@ -283,21 +305,28 @@ void docommand(char *cline) {
   // Q) Why use if(getlicense()) then wait, versus using while(getlicense() == 1){ wait(); } ??
   
   // get function pointer for getlicense() to put into the bakery
-  int (*function_ptr)();
-  function_ptr = getlicense;
-  int result = executeBakery(function_ptr);
+  int (*function_ptr_get)();
+  function_ptr_get = getlicense;
+  place = getBakeryPlace();
+  int result = process_i(place, 1, function_ptr_get);
 
   // use the result, repeat
   while(result == 1) {
     // printf("docommand: waiting on license...%d\n", x);
     sleep(1);
-    result = executeBakery(function_ptr);
+    result = process_i(place, 1, function_ptr_get);
   }
 
-  // actually consume the license for the process
-  removelicenses(1);
+  // actually consume the license for the process using bakery
+  void (*function_ptr_remove)(int);
+  function_ptr_remove = removelicenses;
 
-    // Fork to grand-child
+  place = getBakeryPlace();
+
+  // queue into the bakery
+  process_i(place, 3, function_ptr_remove, 1);
+
+  // Fork to grand-child
   pid_t grandchild_id = fork();
 
   printf("forked grandchild: %d\n", grandchild_id);
@@ -309,17 +338,16 @@ void docommand(char *cline) {
     return;
   }
   else if (grandchild_id == 0) {
+    // In grand-child:
     // reattach memory
     nlicenses = (struct License *)shmat(shmid, NULL, 0);
-    // grand-child
-    // printf("grandchild: %d\n", grandchild_id);
+    
     // get first word from cline
     char *command = strtok(cline, " ");
     // get the rest of the words in the line
     char *arg2 = strtok(NULL, " ");
     char *arg3 = strtok(NULL, " ");
-    // printf("command: %s\n", command);
-    // printf("args: %s %s\n", arg2, arg3);
+
     // execl the command
     execl(command, command, arg2, arg3, (char *) NULL);
     perror("runsim: Error: Failed to execl");
@@ -329,9 +357,6 @@ void docommand(char *cline) {
   }
   else {
     // parent
-    // printf("parent: %d\n", getpid());
-    // printf("grandchild: %d\n", grandchild_id);
-    // printf("cline: %s\n", cline);
     int grandchild_status;
     // Q) do we want no hang option here? do we want to wait for grandchild_id or any id (-1)?
     // waitpid(grandchild_id, &grandchild_status, WNOHANG);
@@ -339,11 +364,13 @@ void docommand(char *cline) {
     // wait(NULL);
     printf("Grand child finished, result: %d\n", WEXITSTATUS(grandchild_status));
 
-    int (*function_ptr)();
-    function_ptr = returnlicense;
-    int result = executeBakery(function_ptr); // can ignore the return value
+    int (*function_ptr_return)();
+    function_ptr_return = returnlicense;
+    place = getBakeryPlace(); // can ignore the return value
+    int result = process_i(place, 1, function_ptr_return);
     if(result == 1) {
-      printf("runsim: Warning: didn't return license\n");
+      printf("licenses: %d\n", nlicenses->nlicenses);
+      // printf("runsim: Warning: didn't return license\n");
     }
   }
 
@@ -359,7 +386,7 @@ void docommand(char *cline) {
 
 // gets the next place in line for the bakery, executes the bakery, then returns the result
 // NOTE: not supporting optional params yet, so none are permitted
-int executeBakery(int (*function_ptr)()) {
+int getBakeryPlace() {
   int place = getNextZero(nlicenses->number, BAKERY_SIZE);
   while(place == -1) {
     sleep(1);
@@ -368,10 +395,7 @@ int executeBakery(int (*function_ptr)()) {
 
   printf("\ngot place: %d\n\n", place);
 
-  // queue into the bakery
-  int result = process_i(place, function_ptr);
-
-  return result;
+  return place;
 }
 
 // From textbook
@@ -381,11 +405,13 @@ int detachandremove(int shmid, void *shmaddr) {
   int error = 0;
 
   if (shmdt(shmaddr) == -1) {
+    perror("Caught shmdt");
     printf("runsim: Error: Can't detach memory\n");
     error = errno;
   }
 
   if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error) {
+    perror("Caught shmdt");
     printf("runsim: Error: Can't remove memory\n");
     error = errno;
   }
@@ -424,7 +450,11 @@ char * getTimeFormattedMessage(char *msg) {
 
 // Variables for bakery are declared at top of file
 
-int process_i(const int i, int (*function_ptr)()) {
+// optional parameters documentation:
+// https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/va-arg-va-copy-va-end-va-start
+
+// could i pass in the function pointers as optional parameters?
+int process_i(const int i, int functionType, ...) {
   do {
     nlicenses->choosing[i] = 1; // 1 is true
     nlicenses->number[i] = 1 + max(nlicenses->number, BAKERY_SIZE); // get highest number within array and add 1, to define a new turn
@@ -435,8 +465,58 @@ int process_i(const int i, int (*function_ptr)()) {
       while((nlicenses->number[j]) && (nlicenses->number[j], j) < (nlicenses->number[i], j)); // (a,b) < (c,d) === (a < c) || ((a == c) && (b < d))
     }
 
-    // enter critical section (as function pointer)
-    int result = function_ptr();
+    // enter critical section (using function pointer)
+
+    // process optional parameters, with "-1" as a terminator
+    int i = functionType;
+    va_list marker;
+    va_start(marker, functionType);
+
+    // if functionType == 1, assume int function(void);
+    // if functionType == 2, assume int function(int);
+    // if functionType == 3, assume void function(int);
+    // if functionType == 4, assume void function(const char *);
+
+    int result = -1;
+    int n;
+
+    // had to declare here to avoid error: "a label can only be part of a statement and a declaration is not a statement"
+    int (*function_ptr_1)(void);
+    int (*function_ptr_2)(int);
+    void (*function_ptr_3)(int);
+    void (*function_ptr_4)(const char*);
+
+    switch(functionType) {
+      case 1:
+        function_ptr_1 = va_arg(marker, int(*)(void));
+        result = function_ptr_1();
+        break;
+      case 2:
+        function_ptr_2 = va_arg(marker, int(*)(int));
+        // get the optional params for the int
+        n = va_arg(marker, int);
+        result = function_ptr_2(n);
+        break;
+      case 3:
+        function_ptr_3 = va_arg(marker, void(*)(int));
+        // get the optional params for the int
+        n = va_arg(marker, int);
+        function_ptr_3(n);
+        break;
+      case 4:
+        function_ptr_4 = va_arg(marker, void(*)(const char*));
+        // get the optional params for the int
+        const char *str = va_arg(marker, const char*);
+        printf("got string %s for pointer function\n", str);
+        function_ptr_4(str);
+        break;
+      default:
+        printf("runsim: Warning: Only options 1-4 are valid for process_i\n");
+        break;
+    }
+
+
+    // int result = function_ptr();
     // critical_section();
 
     // exit critical section
@@ -444,7 +524,6 @@ int process_i(const int i, int (*function_ptr)()) {
     
     printf("\nfunction_ptr result: %d\n\n", result);
 
-    // remainder_section();
     return result;
   } while(1);
 }

@@ -33,7 +33,7 @@ int returnlicense(void) {
 
 // Performs any needed initialization of the license object
 int initlicense(int max) {
-  // sleep(1);
+  sleep(1);
   // set both to max initially, but only nlicenses will change up and down
   nlicenses->nlicenses = max;
   nlicenses->nlicenses_max = max;
@@ -42,7 +42,7 @@ int initlicense(int max) {
 
 // Adds n licenses to the number available
 void addtolicenses(int n) {
-  // sleep(1);
+  sleep(1);
   if(nlicenses->nlicenses + n > nlicenses->nlicenses_max) {
     printf("runsim: Warning: Max licenses reached. Cannot add more.\n");
     return;
@@ -59,7 +59,7 @@ void addtolicenses(int n) {
 
 // Decrements the number of licenses by n
 void removelicenses(int n) {
-  // sleep(1);
+  sleep(1);
   if(nlicenses->nlicenses - n < 0) {
     printf("runsim: Warning: removing %d licenses overflows total amount below 0. Keeping the amount at 0.\n", n);
     nlicenses->nlicenses = 0;
@@ -82,7 +82,7 @@ void removelicenses(int n) {
  * It will open the file to append the message, and close the file after appending the message.
  */
 void logmsg(const char * msg) {
-  // sleep(1);
+  sleep(1);
   char *filename = "runsim.log";
 
   // Open the log file
