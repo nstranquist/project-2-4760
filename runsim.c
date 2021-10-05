@@ -354,8 +354,6 @@ int detachandremove(int shmid, void *shmaddr) {
     error = errno;
   }
   
-  fprintf(stderr, "trying to remove shared memory %d\n", shmid);
-
   if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error) {
     fprintf(stderr, "runsim: Error: Can't remove memory\n");
     error = errno;
