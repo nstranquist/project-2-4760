@@ -72,6 +72,15 @@ static void myhandler(int signum) {
 
   // free memory and exit
   nlicenses = (struct License *)shmat(shmid, NULL, 0);
+
+  // Print time to logfile before exit
+  char *msg = getTimeFormattedMessage(" - Termination");
+
+  void (*function_ptr)(const char*);
+  function_ptr = logmsg;
+  int place = getBakeryPlace(); // can ignore the return value
+  process_i(place, 4, function_ptr, msg);
+
   // nlicenses = (int *)shmat(shmid, NULL, 0);
   int result = detachandremove(shmid, nlicenses);
   printf("detachandremove result: %d\n", result);
@@ -81,14 +90,6 @@ static void myhandler(int signum) {
   if(result == -1) {
     fprintf(stderr, "runsim: Error: Failure to detach and remove memory\n");
   }
-
-  // Print time to logfile before exit
-  char *msg = getTimeFormattedMessage(" - Termination");
-
-  void (*function_ptr)(const char*);
-  function_ptr = logmsg;
-  int place = getBakeryPlace(); // can ignore the return value
-  process_i(place, 4, function_ptr, msg);
 
 	exit(1);
 }
@@ -278,10 +279,6 @@ int main(int argc, char *argv[]) {
   }
 
 
-  if(detachandremove(shmid, nlicenses) == -1) {
-    perror("runsim: Error: Failed to detach and remove shared memory segment");
-    return -1;
-  }
 
   // log message before final termination
   
@@ -291,7 +288,12 @@ int main(int argc, char *argv[]) {
   void (*function_ptr)(const char*);
   function_ptr = logmsg;
   place = getBakeryPlace(); // can ignore the return value
-  int result = process_i(place, 4, function_ptr, msg);
+  process_i(place, 4, function_ptr, msg);
+  
+  if(detachandremove(shmid, nlicenses) == -1) {
+    perror("runsim: Error: Failed to detach and remove shared memory segment");
+    return -1;
+  }
 
   return 0;
 }
@@ -409,6 +411,8 @@ int detachandremove(int shmid, void *shmaddr) {
     printf("runsim: Error: Can't detach memory\n");
     error = errno;
   }
+  
+  fprintf(stderr, "trying to remove shared memory %d\n", shmid);
 
   if ((shmctl(shmid, IPC_RMID, NULL) == -1) && !error) {
     perror("Caught shmdt");
