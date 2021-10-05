@@ -13,4 +13,4 @@ testsim: testsim.o license.o
 	$(CC) -c $<
 
 clean:
-	rm *.o runsim testsim
+	rm -f *.o runsim testsim
