@@ -21,6 +21,7 @@ int printToFile(char *filename, char *msg);
 char *getFormattedTime();
 
 int main(int argc, char** argv) {
+  printf("in runsim\n");
   // get group process id
   // gid_t gid = getgid();
 
@@ -30,9 +31,6 @@ int main(int argc, char** argv) {
 
   // hardcode name for now
   char *logfile = "testsim.log";
-
-
-  printf("\n\nlogfile name: %s\n\n", logfile);
 
   printf("\nIn testsim! Args:\n");
   // Read, validate CLI arguments
@@ -64,9 +62,9 @@ int main(int argc, char** argv) {
   for (int i = 0; i < repeatFactor; i++) {
 
     // sleep for sleepTime seconds
-    printf("Sleeping for %d seconds\n", sleepTime);
+    printf("\nSleeping for %d seconds\n", sleepTime);
     sleep(sleepTime);
-    printf("Done sleeping for %d seconds\n", sleepTime);
+    // printf("Done sleeping for %d seconds\n", sleepTime);
     
     // generate char* message of the time, pid, iteration #
     char *time = getFormattedTime();
@@ -85,7 +83,7 @@ int main(int argc, char** argv) {
       printf("testsim: Success: Printed message to file: %s\n", message);
     }
   }
-
+  printf("testsim: finished\n");
   return 0;
 }
 

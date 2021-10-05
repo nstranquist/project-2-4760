@@ -2,7 +2,7 @@ int getlicense(void);
 
 int returnlicense(void);
 
-int initlicense(void);
+int initlicense(int max);
 
 void addtolicenses(int n);
 
