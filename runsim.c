@@ -48,6 +48,8 @@ int getBakeryPlace();
 int shmid;
 void *shmaddr;
 
+extern struct License *nlicenses;
+
 static void myhandler(int signum) {
   if(signum == SIGINT) {
     // is ctrl-c interrupt

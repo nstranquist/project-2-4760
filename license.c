@@ -1,6 +1,8 @@
 #include "license.h"
 #include "config.h"
 
+struct License *nlicenses;
+
 // Note: All of these functions are critical sections
 
 // Blocks until a license is available
@@ -19,7 +21,7 @@ int returnlicense(void) {
     printf("runsim: Warning: Max licenses reached\n");
     return 1;
   }
-  
+
   nlicenses->nlicenses = nlicenses->nlicenses + 1;
 
   return 0;
